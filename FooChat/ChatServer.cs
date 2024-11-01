@@ -33,21 +33,36 @@ namespace FooChat
             Console.WriteLine($"Клиент {clientEndPoint} подключился.");
 
             using var stream = client.GetStream();
-            byte[] buffer = new byte[1024];
-            int bytesRead = await stream.ReadAsync(buffer);
-            string name = Encoding.UTF8.GetString(buffer,0, bytesRead);
+            byte[] buffer = new byte[4]; // Буфер для чтения длины сообщения (4 байта для int)
+
+            // Сначала читаем длину имени
+            await stream.ReadAsync(buffer, 0, buffer.Length);
+            int nameLength = BitConverter.ToInt32(buffer, 0);
+
+            // Теперь читаем само имя
+            byte[] nameBuffer = new byte[nameLength];
+            await stream.ReadAsync(nameBuffer, 0, nameBuffer.Length);
+            string name = Encoding.UTF8.GetString(nameBuffer);
 
             _clients[client] = name;
             BroadcastMessage($"{name} присоединился к чату");
 
             try
             {
-                while(true)
+                while (true)
                 {
-                    bytesRead = await stream.ReadAsync(buffer);
+                    // Читаем длину сообщения
+                    int bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length);
+                    if (bytesRead == 0) break; // Клиент отключился
+
+                    int messageLength = BitConverter.ToInt32(buffer, 0);
+
+                    // Читаем сообщение
+                    byte[] messageBuffer = new byte[messageLength];
+                    bytesRead = await stream.ReadAsync(messageBuffer, 0, messageBuffer.Length);
                     if (bytesRead == 0) break;
 
-                    string message = Encoding.UTF8.GetString(buffer, 0, bytesRead);
+                    string message = Encoding.UTF8.GetString(messageBuffer);
                     BroadcastMessage($"{name}: {message}");
                 }
             }
@@ -62,6 +77,7 @@ namespace FooChat
                 client.Close();
             }
         }
+
 
         private void BroadcastMessage(string message)
         {
