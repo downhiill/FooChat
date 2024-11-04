@@ -1,26 +1,38 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Net.Sockets;
-using System.Text;
 using System.Threading.Tasks;
 
 namespace FooChatServer
 {
-     class Client
+    /// <summary>
+    /// Представляет клиента, подключенного к чату, и обрабатывает его сообщения.
+    /// </summary>
+    class Client
     {
         private readonly TcpClient _tcpClient;
         private readonly ClientManager _manager;
         private readonly NetworkStream _stream;
+        private readonly CustomTcpListener _tcpListener; // Ссылка на CustomTcpListener для вызова общих методов
         private string _name;
 
-        public Client(TcpClient tcpClient, ClientManager manager)
+        /// <summary>
+        /// Инициализирует новый экземпляр <see cref="Client"/> с указанным TCP-клиентом, менеджером клиентов и слушателем.
+        /// </summary>
+        /// <param name="tcpClient">TCP-клиент, представляющий подключение клиента.</param>
+        /// <param name="manager">Менеджер клиентов, который управляет подключениями.</param>
+        /// <param name="tcpListener">Слушатель TCP для получения и отправки сообщений.</param>
+        public Client(TcpClient tcpClient, ClientManager manager, CustomTcpListener tcpListener)
         {
             _tcpClient = tcpClient;
             _manager = manager;
+            _tcpListener = tcpListener;
             _stream = tcpClient.GetStream();
         }
 
+        /// <summary>
+        /// Обрабатывает взаимодействие с клиентом, включая получение имени и рассылку сообщений.
+        /// </summary>
+        /// <returns>Асинхронная задача.</returns>
         public async Task HandleClientAsync()
         {
             try
@@ -28,9 +40,9 @@ namespace FooChatServer
                 _name = await ReceiveNameAsync();
                 _manager.BroadcastMessage($"{_name} присоединился к чату");
 
-                while(true)
+                while (true)
                 {
-                    string message = await ReceiveMessageAsync();
+                    string message = await _tcpListener.ReceiveMessageAsync(_stream);
                     _manager.BroadcastMessage($"{_name}: {message}");
                 }
             }
@@ -45,33 +57,23 @@ namespace FooChatServer
             }
         }
 
+        /// <summary>
+        /// Получает имя клиента.
+        /// </summary>
+        /// <returns>Имя клиента.</returns>
         private async Task<string> ReceiveNameAsync()
         {
-            int nameLength = await ReadIntAsync();
-            byte[] nameBuffer = new byte[nameLength];
-            await _stream.ReadAsync( nameBuffer, 0, nameBuffer.Length );
-            return Encoding.UTF8.GetString( nameBuffer );
+            return await _tcpListener.ReceiveMessageAsync(_stream);
         }
 
-        private async Task<string> ReceiveMessageAsync()
+        /// <summary>
+        /// Отправляет сообщение клиенту.
+        /// </summary>
+        /// <param name="message">Сообщение для отправки.</param>
+        /// <returns>Асинхронная задача.</returns>
+        public async Task SendMessageAsync(string message)
         {
-            int messageLength = await ReadIntAsync();
-            byte[] messageBuffer = new byte[messageLength];
-            await _stream.ReadAsync(messageBuffer, 0, messageBuffer.Length );
-            return Encoding.UTF8.GetString( messageBuffer );
-        }
-
-        private async Task<int> ReadIntAsync()
-        {
-            byte[] buffer = new byte[4];
-            await _stream.ReadAsync( buffer, 0, buffer.Length );
-            return BitConverter.ToInt32( buffer, 0 );
-        }
-
-        public void SendMessage(string message)
-        {
-            byte[] data = Encoding.UTF8.GetBytes(message);
-            _stream.WriteAsync(data,0, data.Length );
+            await _tcpListener.SendMessageAsync(_stream, message);
         }
     }
 }
