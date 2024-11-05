@@ -5,18 +5,15 @@ using System.Threading.Tasks;
 
 namespace ChatClient
 {
-    /// <summary>
-    /// Класс для клиента чата, который обрабатывает подключение к серверу и обмен сообщениями.
-    /// </summary>
-    class FooChatClient
+    public class FooChatClient
     {
         private TcpClient _client;
         private NetworkStream _stream;
 
-        /// <summary>
-        /// Асинхронно подключается к чату, отправляя имя пользователя на сервер.
-        /// </summary>
-        /// <param name="userName">Имя пользователя, которое будет отправлено на сервер.</param>
+        public event Action<string> MessageReceived;
+        public event Action Connected;
+        public event Action Disconnected; // Событие отключения от сервера
+
         public async Task ConnectAsync(string userName)
         {
             try
@@ -25,100 +22,69 @@ namespace ChatClient
                 await _client.ConnectAsync("127.0.0.1", 5000);
                 _stream = _client.GetStream();
 
-                // Отправляем длину имени (4 байта для int) и затем само имя
-                byte[] nameLengthData = BitConverter.GetBytes(Encoding.UTF8.GetByteCount(userName));
-                await _stream.WriteAsync(nameLengthData, 0, nameLengthData.Length);
+                await SendMessageAsync(userName);
+                Connected?.Invoke();
 
-                byte[] nameData = Encoding.UTF8.GetBytes(userName);
-                await _stream.WriteAsync(nameData, 0, nameData.Length);
-
-                Console.WriteLine("Подключение успешно! Можете отправлять сообщения");
-
-                // Запуск задачи для получения сообщений
-                _ = Task.Run(ReceiveMessageAsync);
-
-                // Цикл для отправки сообщений
-                while (true)
-                {
-                    string message = Console.ReadLine();
-                    if (string.IsNullOrWhiteSpace(message)) continue;
-
-                    await SendMessageAsync(message);
-                }
+                _ = Task.Run(ReceiveMessagesAsync);
             }
-            catch (IOException ex)
+            catch (Exception ex)
             {
-                Console.WriteLine($"Ошибка соединения: {ex.Message}");
-            }
-            finally
-            {
-                _stream?.Close();
-                _client?.Close();
+                Console.WriteLine($"Ошибка подключения: {ex.Message}");
             }
         }
 
-        /// <summary>
-        /// Асинхронно отправляет сообщение на сервер.
-        /// </summary>
-        /// <param name="message">Сообщение для отправки.</param>
-        private async Task SendMessageAsync(string message)
+        private async Task ReceiveMessagesAsync()
         {
             try
             {
-                // Отправляем длину сообщения (4 байта для int) и затем само сообщение
-                byte[] messageLengthData = BitConverter.GetBytes(Encoding.UTF8.GetByteCount(message));
-                await _stream.WriteAsync(messageLengthData, 0, messageLengthData.Length);
+                while (true)
+                {
+                    int messageLength = await ReadMessageLengthAsync();
+                    byte[] buffer = new byte[messageLength];
+                    await _stream.ReadAsync(buffer, 0, messageLength);
 
-                byte[] messageData = Encoding.UTF8.GetBytes(message);
-                await _stream.WriteAsync(messageData, 0, messageData.Length);
+                    string message = Encoding.UTF8.GetString(buffer);
+                    MessageReceived?.Invoke(message);
+                }
             }
-            catch (IOException ex)
+            catch (Exception ex)
             {
-                Console.WriteLine($"Ошибка при отправке данных: {ex.Message}");
+                Console.WriteLine($"Ошибка при приеме сообщения: {ex.Message}");
+                Disconnected?.Invoke(); // Вызываем событие разрыва связи
+            }
+            finally
+            {
+                _client?.Close(); // Закрываем клиентское подключение при ошибке
             }
         }
 
-        /// <summary>
-        /// Асинхронно получает сообщения от сервера.
-        /// </summary>
-        private async Task ReceiveMessageAsync()
+        public async Task Disconnect()
         {
-            while (true)
+            if (_client != null && _client.Connected)
             {
-                try
-                {
-                    // Читаем первые 4 байта для определения длины сообщения
-                    byte[] lengthBuffer = new byte[4];
-                    int bytesRead = await _stream.ReadAsync(lengthBuffer, 0, lengthBuffer.Length);
-                    if (bytesRead == 0) break; // Сервер закрыл соединение
-
-                    int messageLength = BitConverter.ToInt32(lengthBuffer, 0);
-
-                    // Создаем буфер для хранения полного сообщения
-                    byte[] messageBuffer = new byte[messageLength];
-                    int totalBytesRead = 0;
-
-                    // Читаем сообщение в цикле, чтобы получить полное сообщение
-                    while (totalBytesRead < messageLength)
-                    {
-                        bytesRead = await _stream.ReadAsync(messageBuffer, totalBytesRead, messageLength - totalBytesRead);
-                        if (bytesRead == 0) break; // Сервер закрыл соединение
-                        totalBytesRead += bytesRead;
-                    }
-
-                    // Проверяем, что все байты сообщения получены
-                    if (totalBytesRead == messageLength)
-                    {
-                        string message = Encoding.UTF8.GetString(messageBuffer);
-                        Console.WriteLine(message);
-                    }
-                }
-                catch (IOException ex)
-                {
-                    Console.WriteLine($"Ошибка при получении данных: {ex.Message}");
-                    break;
-                }
+                _client.Close();
+                Disconnected?.Invoke();
             }
         }
+
+        private async Task<int> ReadMessageLengthAsync()
+        {
+            byte[] lengthBuffer = new byte[4];
+            await _stream.ReadAsync(lengthBuffer, 0, lengthBuffer.Length);
+            return BitConverter.ToInt32(lengthBuffer, 0);
+        }
+
+        public async Task SendMessageAsync(string message)
+        {
+            if (_stream == null) throw new InvalidOperationException("Нет подключения к серверу");
+
+            byte[] messageData = Encoding.UTF8.GetBytes(message);
+            byte[] messageLength = BitConverter.GetBytes(messageData.Length);
+
+            await _stream.WriteAsync(messageLength, 0, messageLength.Length);
+            await _stream.WriteAsync(messageData, 0, messageData.Length);
+        }
+
+       
     }
 }
