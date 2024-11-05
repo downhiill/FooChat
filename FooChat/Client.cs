@@ -10,21 +10,28 @@ namespace FooChatServer
     class Client
     {
         private readonly TcpClient _tcpClient;
-        private readonly ClientManager _manager;
         private readonly NetworkStream _stream;
         private readonly CustomTcpListener _tcpListener; // Ссылка на CustomTcpListener для вызова общих методов
         private string _name;
 
         /// <summary>
-        /// Инициализирует новый экземпляр <see cref="Client"/> с указанным TCP-клиентом, менеджером клиентов и слушателем.
+        /// Событие, возникающее при подключении клиента.
+        /// </summary>
+        public event Action<string> ClientConnected;
+
+        /// <summary>
+        /// Событие, возникающее при получении сообщения от клиента.
+        /// </summary>
+        public event Action<string> MessageReceived;
+
+        /// <summary>
+        /// Инициализирует новый экземпляр <see cref="Client"/> с указанным TCP-клиентом и слушателем.
         /// </summary>
         /// <param name="tcpClient">TCP-клиент, представляющий подключение клиента.</param>
-        /// <param name="manager">Менеджер клиентов, который управляет подключениями.</param>
         /// <param name="tcpListener">Слушатель TCP для получения и отправки сообщений.</param>
-        public Client(TcpClient tcpClient, ClientManager manager, CustomTcpListener tcpListener)
+        public Client(TcpClient tcpClient, CustomTcpListener tcpListener)
         {
             _tcpClient = tcpClient;
-            _manager = manager;
             _tcpListener = tcpListener;
             _stream = tcpClient.GetStream();
         }
@@ -38,21 +45,20 @@ namespace FooChatServer
             try
             {
                 _name = await ReceiveNameAsync();
-                _manager.BroadcastMessage($"{_name} присоединился к чату");
+                ClientConnected?.Invoke(_name); // Генерируем событие при подключении клиента
 
                 while (true)
                 {
                     string message = await _tcpListener.ReceiveMessageAsync(_stream);
-                    _manager.BroadcastMessage($"{_name}: {message}");
+                    MessageReceived?.Invoke($"{_name}: {message}"); // Генерируем событие при получении сообщения
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                Console.WriteLine($"Клиент {_name} отключился");
+                Console.WriteLine($"Клиент {_name} отключился: {ex.Message}");
             }
             finally
             {
-                _manager.RemoveClient(_tcpClient, _name);
                 _tcpClient.Close();
             }
         }

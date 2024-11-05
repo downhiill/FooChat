@@ -28,22 +28,30 @@ namespace FooChatServer
         /// <param name="tcpClient">TCP-клиент, представляющий новое подключение.</param>
         public void AddClient(TcpClient tcpClient)
         {
-            var client = new Client(tcpClient, this, _tcpListener); 
+            var client = new Client(tcpClient, _tcpListener);
+            client.ClientConnected += OnClientConnected;
+            client.MessageReceived += OnMessageReceived;
             _clients[tcpClient] = client;
+
             Task.Run(() => client.HandleClientAsync());
         }
 
         /// <summary>
-        /// Удаляет клиента из менеджера клиентов и рассылает сообщение о его выходе.
+        /// Обрабатывает событие подключения клиента.
         /// </summary>
-        /// <param name="tcpClient">TCP-клиент, который нужно удалить.</param>
-        /// <param name="clientName">Имя клиента, который покидает чат.</param>
-        public void RemoveClient(TcpClient tcpClient, string clientName)
+        /// <param name="clientName">Имя подключившегося клиента.</param>
+        private void OnClientConnected(string clientName)
         {
-            if (_clients.TryRemove(tcpClient, out _))
-            {
-                BroadcastMessage($"{clientName} покинул чат");
-            }
+            BroadcastMessage($"{clientName} присоединился к чату");
+        }
+
+        /// <summary>
+        /// Обрабатывает событие получения сообщения от клиента.
+        /// </summary>
+        /// <param name="message">Сообщение, полученное от клиента.</param>
+        private void OnMessageReceived(string message)
+        {
+            BroadcastMessage(message);
         }
 
         /// <summary>
@@ -55,7 +63,7 @@ namespace FooChatServer
             Console.WriteLine(message);
             foreach (var client in _clients.Values)
             {
-                client.SendMessageAsync(message); 
+                _ = client.SendMessageAsync(message); // Асинхронная отправка сообщения клиенту
             }
         }
     }
