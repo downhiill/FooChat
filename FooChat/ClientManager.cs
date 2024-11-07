@@ -11,16 +11,7 @@ namespace FooChatServer
     internal class ClientManager
     {
         private readonly ConcurrentDictionary<TcpClient, Client> _clients = new();
-        private readonly CustomTcpListener _tcpListener;
 
-        /// <summary>
-        /// Инициализирует новый экземпляр <see cref="ClientManager"/> с указанным слушателем TCP.
-        /// </summary>
-        /// <param name="tcpListener">Слушатель TCP, используемый для получения входящих подключений.</param>
-        public ClientManager(CustomTcpListener tcpListener)
-        {
-            _tcpListener = tcpListener;
-        }
 
         /// <summary>
         /// Добавляет нового клиента в менеджер клиентов и начинает обрабатывать его асинхронно.
@@ -28,11 +19,12 @@ namespace FooChatServer
         /// <param name="tcpClient">TCP-клиент, представляющий новое подключение.</param>
         public void AddClient(TcpClient tcpClient)
         {
-            var client = new Client(tcpClient, _tcpListener);
+            var client = new Client(tcpClient);
             client.ClientConnected += OnClientConnected;
             client.MessageReceived += OnMessageReceived;
             _clients[tcpClient] = client;
 
+            // Начинаем обработку клиента асинхронно
             Task.Run(() => client.HandleClientAsync());
         }
 

@@ -9,49 +9,33 @@ namespace FooChatServer
     /// </summary>
     class Client
     {
-        private readonly TcpClient _tcpClient;
-        private readonly NetworkStream _stream;
-        private readonly CustomTcpListener _tcpListener; // Ссылка на CustomTcpListener для вызова общих методов
+        private readonly ClientHandler _tcpListener;
         private string _name;
 
-        /// <summary>
-        /// Событие, возникающее при подключении клиента.
-        /// </summary>
         public event Action<string> ClientConnected;
-
-        /// <summary>
-        /// Событие, возникающее при получении сообщения от клиента.
-        /// </summary>
         public event Action<string> MessageReceived;
 
-        /// <summary>
-        /// Инициализирует новый экземпляр <see cref="Client"/> с указанным TCP-клиентом и слушателем.
-        /// </summary>
-        /// <param name="tcpClient">TCP-клиент, представляющий подключение клиента.</param>
-        /// <param name="tcpListener">Слушатель TCP для получения и отправки сообщений.</param>
-        public Client(TcpClient tcpClient, CustomTcpListener tcpListener)
+        public Client(TcpClient tcpClient)
         {
-            _tcpClient = tcpClient;
-            _tcpListener = tcpListener;
-            _stream = tcpClient.GetStream();
+            // Создаем экземпляр CustomTcpListener внутри Client
+            _tcpListener = new ClientHandler(tcpClient);
+
+            // Подписываемся на событие MessageReceived для обработки входящих сообщений
+            _tcpListener.MessageReceived += OnMessageReceived;
         }
 
         /// <summary>
-        /// Обрабатывает взаимодействие с клиентом, включая получение имени и рассылку сообщений.
+        /// Обрабатывает взаимодействие с клиентом, включая получение имени и подключение.
         /// </summary>
-        /// <returns>Асинхронная задача.</returns>
         public async Task HandleClientAsync()
         {
             try
             {
-                _name = await ReceiveNameAsync();
-                ClientConnected?.Invoke(_name); // Генерируем событие при подключении клиента
+                _name = await _tcpListener.ReceiveClientNameAsync();
+                ClientConnected?.Invoke(_name);
 
-                while (true)
-                {
-                    string message = await _tcpListener.ReceiveMessageAsync(_stream);
-                    MessageReceived?.Invoke($"{_name}: {message}"); // Генерируем событие при получении сообщения
-                }
+                // Начинаем прослушивание сообщений от клиента
+                await _tcpListener.StartListeningForMessagesAsync(_name);
             }
             catch (Exception ex)
             {
@@ -59,27 +43,28 @@ namespace FooChatServer
             }
             finally
             {
-                _tcpClient.Close();
+                _tcpListener.MessageReceived -= OnMessageReceived;
+                _tcpListener.Dispose();
             }
-        }
-
-        /// <summary>
-        /// Получает имя клиента.
-        /// </summary>
-        /// <returns>Имя клиента.</returns>
-        private async Task<string> ReceiveNameAsync()
-        {
-            return await _tcpListener.ReceiveMessageAsync(_stream);
         }
 
         /// <summary>
         /// Отправляет сообщение клиенту.
         /// </summary>
-        /// <param name="message">Сообщение для отправки.</param>
-        /// <returns>Асинхронная задача.</returns>
         public async Task SendMessageAsync(string message)
         {
-            await _tcpListener.SendMessageAsync(_stream, message);
+            await _tcpListener.SendMessageAsync(message);
+        }
+
+        /// <summary>
+        /// Обработчик события получения сообщения.
+        /// </summary>
+        private void OnMessageReceived(string clientName, string message)
+        {
+            if (clientName == _name)
+            {
+                MessageReceived?.Invoke($"{_name}: {message}");
+            }
         }
     }
 }
